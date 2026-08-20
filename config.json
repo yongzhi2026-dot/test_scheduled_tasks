@@ -1,0 +1,14 @@
+{
+  "step": 50,
+  "pushplus_token": "",
+  "wecom_webhook": "",
+  "email": {
+    "enable": true,
+    "smtp_host": "smtp.qq.com",
+    "smtp_port": 465,
+    "smtp_user": "isrhino@foxmail.com",
+    "smtp_pass": "",
+    "to": ""
+  },
+  "poll_seconds": 30
+}
