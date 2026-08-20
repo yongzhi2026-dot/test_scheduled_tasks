@@ -35,7 +35,7 @@ jobs:
           if [ "${{ inputs.test_email }}" = "true" ]; then
             python monitor.py --test-email
           else
-            python monitor.py --once
+            python monitor.py --once || (echo "first attempt failed, retrying in 90s..." && sleep 90 && python monitor.py --once)
           fi
 
       - name: Commit state
