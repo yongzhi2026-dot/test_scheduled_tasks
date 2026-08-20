@@ -23,6 +23,14 @@ jobs:
       - name: Install dependencies
         run: pip install requests
 
+      - name: Diagnose connectivity
+        run: |
+          echo "--- ICBC target page ---"
+          curl -sS -o /dev/null -w "ICBC: HTTP %{http_code}, %{time_total}s\n" --max-time 15 -A "Mozilla/5.0 (Windows NT 10.0; Win64; x64)" "https://cmbcnp.icbc.com.cn/icbc/newperbank/perbank3/gold/goldaccrual_query_out.jsp" || echo "ICBC: CURL FAILED ($?)"
+          echo "--- China site baseline ---"
+          curl -sS -o /dev/null -w "Baidu: HTTP %{http_code}, %{time_total}s\n" --max-time 15 "https://www.baidu.com" || echo "Baidu: CURL FAILED ($?)"
+          curl -sS -o /dev/null -w "ICBC main: HTTP %{http_code}, %{time_total}s\n" --max-time 15 "https://www.icbc.com.cn" || echo "ICBC main: CURL FAILED ($?)"
+
       - name: Run monitor
         env:
           SMTP_PASS: ${{ secrets.SMTP_PASS }}
