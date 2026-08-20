@@ -44,10 +44,12 @@ if os.environ.get("STEP"):
 URL = "https://cmbcnp.icbc.com.cn/icbc/newperbank/perbank3/gold/goldaccrual_query_out.jsp"
 
 logging.basicConfig(
-    filename=BASE / "monitor.log",
     level=logging.INFO,
     format="%(asctime)s %(levelname)s %(message)s",
-    encoding="utf-8",
+    handlers=[
+        logging.FileHandler(BASE / "monitor.log", encoding="utf-8"),
+        logging.StreamHandler(sys.stdout),
+    ],
 )
 
 
