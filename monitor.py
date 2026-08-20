@@ -20,6 +20,8 @@ from email.mime.text import MIMEText
 from pathlib import Path
 
 import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.ssl_ import create_urllib3_context
 
 BASE = Path(__file__).parent
 CFG = json.loads((BASE / "config.json").read_text(encoding="utf-8"))
@@ -53,11 +55,26 @@ logging.basicConfig(
 )
 
 
+class LegacyTLSAdapter(HTTPAdapter):
+    """工行服务器未实现 RFC 5746 安全重协商,OpenSSL 3.x 默认拒绝握手,
+    需显式开启 legacy 选项(OpenSSL 1.x 本就默认开启,无副作用)。"""
+
+    def init_poolmanager(self, *args, **kwargs):
+        ctx = create_urllib3_context()
+        ctx.options |= 0x4 | 0x40000
+        kwargs["ssl_context"] = ctx
+        return super().init_poolmanager(*args, **kwargs)
+
+
+SESSION = requests.Session()
+SESSION.mount("https://", LegacyTLSAdapter())
+
+
 def fetch_price():
     """抓取工行积存金页面,返回 (积存价, 当日最低, 当日最高) 或 None。"""
     for _ in range(3):
         try:
-            r = requests.get(
+            r = SESSION.get(
                 URL,
                 headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"},
                 timeout=10,
@@ -143,7 +160,7 @@ def check_once():
         if st["fails"] == 3:
             push("积存金监控异常", "连续 3 次抓取失败,请检查工行页面是否改版。")
         save_state(st)
-        return
+        return False
 
     st["fails"] = 0
     price, lo, hi = got
@@ -154,7 +171,7 @@ def check_once():
         save_state({"bucket": bucket, "price": price, "step": CFG["step"],
                     "last_alert_level": None, "fails": 0})
         logging.info("init: price=%s bucket=%s step=%s", price, bucket, CFG["step"])
-        return
+        return True
     hour = time.strftime("%Y%m%d%H")
     if st.get("hb") != hour:
         logging.info("heartbeat: price=%s bucket=%s", price, bucket)
@@ -179,11 +196,12 @@ def check_once():
     else:
         st["price"] = price
     save_state(st)
+    return True
 
 
 if __name__ == "__main__":
     if "--once" in sys.argv:
-        check_once()
+        sys.exit(0 if check_once() else 1)
     else:
         while True:
             check_once()
