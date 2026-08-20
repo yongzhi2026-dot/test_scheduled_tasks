@@ -133,35 +133,61 @@ def _gh_headers():
 
 
 def load_state():
-    """从 GitHub 读 state.json,返回 (state_dict, sha);无 token 或无文件时 ({}, None)。"""
+    """从 GitHub 读 state.json,返回 (state, sha, available)。
+
+    available=False 表示 GitHub 不可达(读失败),区别于文件不存在(合法初始化)。
+    """
     if not (GH_TOKEN and GH_REPO):
         log.error("GITHUB_TOKEN/GITHUB_REPO not configured, state cannot persist")
-        return {}, None
-    r = requests.get(_gh_api(), params={"ref": GH_BRANCH},
-                     headers=_gh_headers(), timeout=15)
-    if r.status_code == 404:
-        return {}, None
-    r.raise_for_status()
-    d = r.json()
+        return {}, None, False
+    for attempt in (1, 2):
+        try:
+            r = requests.get(_gh_api(), params={"ref": GH_BRANCH},
+                             headers=_gh_headers(), timeout=15)
+            if r.status_code == 404:
+                return {}, None, True
+            r.raise_for_status()
+            d = r.json()
+            return json.loads(base64.b64decode(d["content"]).decode("utf-8")), d["sha"], True
+        except Exception as e:
+            log.warning("state load failed (%d/2): %s", attempt, e)
+            time.sleep(2)
+    return {}, None, False
+
+
+def _read_sha():
     try:
-        return json.loads(base64.b64decode(d["content"]).decode("utf-8")), d["sha"]
-    except Exception:
-        log.warning("state file unreadable, reinitializing")
-        return {}, None
+        r = requests.get(_gh_api(), params={"ref": GH_BRANCH},
+                         headers=_gh_headers(), timeout=15)
+        if r.status_code == 200:
+            return r.json().get("sha")
+    except Exception as e:
+        log.warning("sha re-read failed: %s", e)
+    return None
 
 
 def save_state(st, sha):
-    """写回 state.json。仅在关口/心跳/失败计数变化时调用,避免每分钟一个 commit。"""
+    """写回 state.json,失败重试;仅在状态变化时调用。"""
     if not (GH_TOKEN and GH_REPO):
         return False
     content = base64.b64encode(json.dumps(st, ensure_ascii=False).encode("utf-8")).decode()
     body = {"message": "state update [skip ci]", "content": content, "branch": GH_BRANCH}
-    if sha:
-        body["sha"] = sha
-    r = requests.put(_gh_api(), headers=_gh_headers(), json=body, timeout=15)
-    if r.status_code in (200, 201):
-        return True
-    log.warning("state save failed: HTTP %s %s", r.status_code, r.text[:200])
+    for attempt in (1, 2, 3):
+        try:
+            if sha:
+                body["sha"] = sha
+            r = requests.put(_gh_api(), headers=_gh_headers(), json=body, timeout=15)
+            if r.status_code in (200, 201):
+                return True
+            if r.status_code == 409:
+                # sha 过期(仓库侧 state.json 被其他来源更新过),重读后重试
+                sha = _read_sha()
+                log.warning("state save 409, refreshed sha=%s", bool(sha))
+            else:
+                log.warning("state save failed: HTTP %s %s", r.status_code, r.text[:200])
+        except Exception as e:
+            log.warning("state save error (%d/3): %s", attempt, e)
+        time.sleep(3)
     return False
 
 
@@ -170,16 +196,23 @@ def _hb():
 
 
 def handler(event, context):
-    st, sha = load_state()
+    st, sha, available = load_state()
+
     got = fetch_price()
     if got is None:
-        st["fails"] = st.get("fails", 0) + 1
-        if st["fails"] == 3:
-            send_email("积存金监控异常",
-                       "连续 3 次抓取失败,请检查工行页面是否改版或函数网络出口。")
-        save_state(st, sha)
-        log.info("fetch failed, fails=%s", st["fails"])
-        return {"ok": False, "fails": st["fails"]}
+        if available:
+            st["fails"] = st.get("fails", 0) + 1
+            if st["fails"] == 3:
+                send_email("积存金监控异常",
+                           "连续 3 次抓取失败,请检查工行页面是否改版或函数网络出口。")
+            save_state(st, sha)
+        log.info("fetch failed, fails=%s", st.get("fails"))
+        return {"ok": False, "fails": st.get("fails")}
+
+    if not available:
+        # GitHub 不可达:照常抓价记心跳,但无法判断关口跨越,跳过告警与状态写入
+        log.info("degraded (state source unreachable): price=%s, crossing check skipped", got[0])
+        return {"ok": True, "price": got[0], "degraded": True}
 
     st["fails"] = 0
     price, lo, hi = got
