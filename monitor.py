@@ -96,22 +96,29 @@ def fetch_price():
 def send_email(title, content):
     ec = CFG.get("email") or {}
     if not (ec.get("enable") and ec.get("smtp_user") and ec.get("smtp_pass")):
+        logging.warning(
+            "email skipped: incomplete config (enable=%s user=%s pass=%s)",
+            bool(ec.get("enable")), bool(ec.get("smtp_user")), bool(ec.get("smtp_pass")),
+        )
         return
     msg = MIMEText(content, "plain", "utf-8")
     msg["Subject"] = Header(title, "utf-8")
     msg["From"] = ec["smtp_user"]
     msg["To"] = ec.get("to") or ec["smtp_user"]
-    try:
-        if ec.get("smtp_port", 465) == 587:
-            s = smtplib.SMTP(ec["smtp_host"], 587, timeout=10)
-            s.starttls()
-        else:
-            s = smtplib.SMTP_SSL(ec["smtp_host"], ec.get("smtp_port", 465), timeout=10)
-        s.login(ec["smtp_user"], ec["smtp_pass"])
-        s.sendmail(ec["smtp_user"], [msg["To"]], msg.as_string())
-        s.quit()
-    except Exception as e:
-        logging.warning("email push failed: %s", e)
+    for attempt in (1, 2, 3):
+        try:
+            if ec.get("smtp_port", 465) == 587:
+                s = smtplib.SMTP(ec["smtp_host"], 587, timeout=10)
+                s.starttls()
+            else:
+                s = smtplib.SMTP_SSL(ec["smtp_host"], ec.get("smtp_port", 465), timeout=10)
+            s.login(ec["smtp_user"], ec["smtp_pass"])
+            s.sendmail(ec["smtp_user"], [msg["To"]], msg.as_string())
+            s.quit()
+            return
+        except Exception as e:
+            logging.warning("email push failed (attempt %d/3): %s", attempt, e)
+            time.sleep(3)
 
 
 def push(title, content):
@@ -200,6 +207,13 @@ def check_once():
 
 
 if __name__ == "__main__":
+    if "--test-email" in sys.argv:
+        push(
+            "积存金监控·测试邮件",
+            "这是一封测试邮件,收到即说明邮箱提醒链路正常。\n当前配置: step=%d 元关口" % CFG["step"],
+        )
+        logging.info("test email dispatched")
+        sys.exit(0)
     if "--once" in sys.argv:
         sys.exit(0 if check_once() else 1)
     else:
