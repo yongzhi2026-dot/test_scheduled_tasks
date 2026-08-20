@@ -3,3 +3,5 @@ __pycache__/
 monitor.log
 .trae-html-share-packages/
 *.tmp
+deploy/functiongraph/build/
+deploy/functiongraph/fg_package.zip

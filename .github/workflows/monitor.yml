@@ -1,8 +1,7 @@
 name: ICBC Gold Monitor
 
+# 监控已迁移至华为云 FunctionGraph(每分钟执行),此工作流仅保留手动测试入口
 on:
-  schedule:
-    - cron: '*/5 * * * *'
   workflow_dispatch:
     inputs:
       test_email:
