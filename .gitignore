@@ -1,7 +1,4 @@
-__pycache__/
-*.pyc
-monitor.log
-.trae-html-share-packages/
-*.tmp
-deploy/functiongraph/build/
-deploy/functiongraph/fg_package.zip
+# 仓库仅作为华为云函数的状态存储,只跟踪 state.json,其余文件均为本地工作文件
+*
+!state.json
+!.gitignore
