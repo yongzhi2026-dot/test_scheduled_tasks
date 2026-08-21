@@ -196,6 +196,15 @@ def _hb():
 
 
 def handler(event, context):
+    # 测试事件传 {"test_email": true} 可触发一封测试邮件,验证 SMTP 链路;
+    # 定时触发器的事件不含该字段,不会误发
+    if isinstance(event, dict) and event.get("test_email"):
+        price, lo, hi = fetch_price() or (0.0, 0.0, 0.0)
+        send_email("积存金监控·云端测试邮件",
+                   "SMTP 链路正常。\n当前积存价:%.2f\n今日区间:%.2f ~ %.2f\n(来自华为云 FunctionGraph)"
+                   % (price, lo, hi))
+        return {"ok": True, "test_email": "sent", "price": price}
+
     st, sha, available = load_state()
 
     got = fetch_price()
